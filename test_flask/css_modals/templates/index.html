@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <style ref="{{url_for('.static', filename='modal.css')}}">
+  <script>{{modal.js|safe}}</script>
+ </head>
+ <body>
+ </body>
+ <h1>This is a page.</h1>
+ And this is some text on this page,
+ {{modal.open('Hier bitte ein Klick')|safe}}
+ {{modal.div|safe}}
+</html>
