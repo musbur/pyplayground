@@ -16,51 +16,77 @@
  *
  */
 
-struct ll {
-    struct ll *next;
+
+typedef int (list_cb)(int i, void *p, void *user_data);
+
+struct list *list_new(void) {
+    struct list *new;
+    static struct list zero;
+    if (!(new = malloc(sizeof *new))) return NULL;
+    *new = zero;
+    return new;
+}
+
+int list_append(struct list *l, void *data, free_func_t *ff) {
+    struct ll *el;
+    if (!(el = malloc(sizeof *el))) return -1;
+    el->data = data;
+    el->free_func = ff;
+    el->next = NULL;
+    if (l->head) {
+        l->head->next = el;
+        l->head = l->head->next;
+    } else {
+        l->root = el;
+        l->head = l->root;
+    }
+    return ++l->length;
+}
+
+int list_append_str(struct list *l, const char *str) {
     char *s;
-} ;
+    if (!(s = malloc(strlen(str) + 1))) return -1;
+    return list_append(l, strcpy(s, str), free);
+}
 
-void ll_print(struct ll *ll) {
-    int i = 1;
-    while (ll && ll->next) {
-        printf("  %d: <%s>\n", i++, ll->s);
-        ll = ll->next;
+void **list_to_array(struct list *l) {
+    void **arr;
+    int i;
+    struct ll *p;
+
+    if (!(arr = malloc((l->length + 1) * sizeof *arr))) return NULL;
+    for (i = 0, p = l->root; i < l->length; ++i) {
+        if (!p) {
+            free(arr);
+            return NULL;
+        }
+        arr[i] = p->data;
+    }
+    return arr;
+}
+
+void list_free(struct list *l) {
+    struct ll *lp, *next;
+    if (!l) return;
+    lp = l->root;
+    while (lp) {
+        if (lp->free_func) lp->free_func(lp->data);
+        next = lp->next;
+        free(lp);
+        lp = next;
     }
 }
 
-struct ll *ll_new(void) {
-    struct ll *e;
-    if (!(e = malloc(sizeof *e))) return NULL;
-    e->s = NULL;
-    e->next = NULL;
-    return e;
-}
-
-struct ll *ll_append(struct ll *e, const char *s) {
-    if (!(e->s = malloc(strlen(s) + 1))) return NULL;
-    strcpy(e->s, s);
-    e->next = ll_new();
-    return e->next;
-}
-
-void ll_free(struct ll *ll) {
-    struct ll *t;
-    while (ll) {
-        free(ll->s);
-        t = ll->next;
-        free(ll);
-        ll = t;
+void list_print(FILE *fp, struct list *l) {
+    int i;
+    struct ll *p;
+    if (!l) return;
+    for (p = l->root, i = 0; i < l->length; ++i) {
+        if (!p) break;
+        fprintf(fp, "%2d: %s\n", i, (char *) p->data);
+        p = p->next;
     }
 }
-
-struct double_array {
-    double *value;
-    double *pos;
-    int length;
-    int alloc_increment;
-    int allocated;
-} ;
 
 struct double_array *double_a_new(int alloc_increment) {
     struct double_array *arr;
@@ -98,18 +124,18 @@ void double_a_free(struct double_array *arr) {
  */
 
 static int get_text(const char *piece, long pos, void *user_data) {
-    pto_context *ctx = user_data;
+    struct pto_context *ctx = user_data;
     (void) pos;
-    if (ctx->ll_p) ctx->ll_p = ll_append(ctx->ll_p, piece);
+    if (ctx->current_list) list_append_str(ctx->current_list, piece);
     return 0;
 }
 
 static int get_double(const char *piece, long pos, void *user_data) {
-    pto_context *ctx = user_data;
+    struct pto_context *ctx = user_data;
     double v;
     char *e;
     (void) pos;
-    if (ctx->current_col >= ctx->n_columns) {
+    if (ctx->current_col >= ctx->colnames->length) {
         return 0; // silently ignore excess value
     }
     if (ctx->column_mask[ctx->current_col]) {
@@ -144,18 +170,18 @@ static int endswith(const char *str, const char *pat) {
     return (strcmp(pat, str + diff) == 0);
 }
 
-static char *make_colmask(struct ll *all, int n, char **wanted) {
+static char *make_colmask(struct list *colnames, char **wanted) {
     char *mask;
     char **wp;
     int i;
-    struct ll *p = all;
+    struct ll *lp;
 
-    if (!(mask = malloc(n))) return NULL;
-    for (i = 0; i < n; ++i) {
+    if (!(mask = malloc(colnames->length))) return NULL;
+    for (lp = colnames->root, i = 0; i < colnames->length; ++i) {
         mask[i] = 0;
-        if (all) {
+        if (wanted) {
             for (wp = wanted; *wp; ++wp) {
-                if (endswith(p->s, *wp)) {
+                if (endswith(lp->data, *wp)) {
                     mask[i] = 1;
                     break;
                 }
@@ -163,14 +189,14 @@ static char *make_colmask(struct ll *all, int n, char **wanted) {
         } else {
             mask[i] = 1;
         }
-        p = p->next;
-        if (!p) break;
+        lp = lp->next;
+        if (!lp) break;
     }
     return mask;
 }
 
 static int get_line(int line_no, int n_pieces, void *user_data) {
-    pto_context *ctx = user_data;
+    struct pto_context *ctx = user_data;
     switch (line_no) {
         case 0:
         case 1:
@@ -178,26 +204,25 @@ static int get_line(int line_no, int n_pieces, void *user_data) {
         case 3:
             break;
         case 4:
-            ctx->ll_p = ctx->header_keys;
+            ctx->current_list = ctx->header_keys;
             break;
         case 5:
-            ctx->ll_p = ctx->header_values;
+            ctx->current_list = ctx->header_values;
             break;
         case 6:
-            ctx->ll_p = ctx->colnames;
+            ctx->current_list = ctx->colnames;
             break;
         case 7:
-            ctx->n_columns = n_pieces;
-            ctx->column_mask = make_colmask(ctx->colnames, ctx->n_columns,
+            ctx->column_mask = make_colmask(ctx->colnames,
                                             ctx->colname_patterns);
             ctx->data = double_a_new(300);
             ctx->csv->func_piece = get_double;
             break;
         default:
             ctx->status = STATUS_DATA;
-            if (n_pieces != ctx->n_columns) {
+            if (n_pieces != ctx->colnames->length) {
                 fprintf(stderr, "Expected %d values in line %d, got %d\n",
-                        (int) ctx->n_columns,
+                        (int) ctx->colnames->length,
                         (int) line_no,
                         (int) n_pieces);
             }
@@ -213,15 +238,15 @@ static int get_line(int line_no, int n_pieces, void *user_data) {
  *
  */
 
-pto_context *pcsv_new(void) {
-    pto_context *ctx;
-    static pto_context zero;
+struct pto_context *pcsv_new(void) {
+    struct pto_context *ctx;
+    static struct pto_context zero;
     if (!(ctx = malloc(sizeof *ctx))) return NULL;
     *ctx = zero;
 
-    if (!(ctx->header_keys = ll_new()))      goto CLEANUP;
-    if (!(ctx->header_values = ll_new()))    goto CLEANUP;
-    if (!(ctx->colnames = ll_new()))         goto CLEANUP;
+    if (!(ctx->header_keys = list_new()))      goto CLEANUP;
+    if (!(ctx->header_values = list_new()))    goto CLEANUP;
+    if (!(ctx->colnames = list_new()))         goto CLEANUP;
     goto CONTINUE;
 CLEANUP:
     pcsv_free(ctx);
@@ -233,18 +258,17 @@ CONTINUE:
     return ctx;
 }
 
-int pcsv_feed(pto_context *ctx, const char *buffer, int buflen) {
+int pcsv_feed(struct pto_context *ctx, const char *buffer, int buflen) {
     if (ctx->status != STATUS_FEED) {
-        ctx->ll_p = NULL;
         ctx->status = STATUS_FEED;
     }
     return csv_feed(ctx->csv, buffer, buflen);
 }
 
-void pcsv_free(pto_context *ctx) {
-    ll_free(ctx->header_keys);
-    ll_free(ctx->header_values);
-    ll_free(ctx->colnames);
+void pcsv_free(struct pto_context *ctx) {
+    list_free(ctx->header_keys);
+    list_free(ctx->header_values);
+    list_free(ctx->colnames);
     double_a_free(ctx->data);
     csv_free(ctx->csv);
     free(ctx->column_mask);
@@ -252,7 +276,7 @@ void pcsv_free(pto_context *ctx) {
 }
 
 /*
-void print_data(pto_context *ctx) {
+void print_data(struct pto_context *ctx) {
     int c, i;
     printf("Header Keys:\n");
     ll_print(ctx->header_keys);

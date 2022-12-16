@@ -16,7 +16,7 @@ int main(void) {
     FILE *csv;
     int bytes;
     char buffer[100];
-    pto_context *context;
+    struct pto_context *context;
     int r;
 
     context = pcsv_new();
