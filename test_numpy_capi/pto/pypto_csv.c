@@ -71,10 +71,14 @@ CONTINUE:
 }
 
 static PyObject *feed(pto_csv *self, PyObject *args) {
-    int buflen;
-    char *buffer;
+    Py_ssize_t buflen;
+    const char *buffer;
+    char *x;
     int r;
     if (!PyArg_ParseTuple(args, "y#", &buffer, &buflen)) return NULL;
+    x = malloc(buflen + 1);
+    strncpy(x, buffer, buflen);
+    x[buflen] = 0;
     r = pcsv_feed(self->context, buffer, buflen);
     if (r != 0) {
         return PyErr_Format(PyExc_RuntimeError, "csv_feed() = %d", r);
@@ -89,8 +93,7 @@ static PyObject *header(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
 static PyObject *columns(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
     PyObject *clist;
     struct ll *lp;
-
-    if (!(clist = PyList_New(self->context->colnames->length))) return NULL;
+    if (!(clist = PyList_New(0))) return NULL;
 
     for (lp = self->context->colnames->root; lp; lp = lp->next) {
         PyList_Append(clist, PyUnicode_FromString(lp->data));
@@ -125,6 +128,7 @@ static void dealloc(pto_csv *self) {
 }
 
 static PyObject *data(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
+//    npy_intp dims[2];
     npy_intp dims[2];
     PyObject *ndarray;
     int i, n_columns;
@@ -132,11 +136,13 @@ static PyObject *data(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
     for (n_columns = 0, i = 0; i < self->context->colnames->length; ++i) {
         if (self->context->column_mask[i]) ++n_columns;
     }
+    fprintf(stderr, "%d %d\n", self->context->data->length, n_columns);
+    Py_INCREF(Py_None);
 
-    dims[0] = n_columns;
-    dims[1] = self->context->data->length / n_columns;
+    dims[0] = self->context->data->length / n_columns;
+    dims[1] = n_columns;
     ndarray = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE,
-                                        self->context->data);
+                                        self->context->data->value);
     Py_INCREF(ndarray);
     return ndarray;
 }
@@ -179,6 +185,8 @@ PyMODINIT_FUNC PyInit_pto_csv(void) {
         return NULL;
     }
 
+    import_array();
+    
     Py_INCREF(&PTO_CSV);
     if (PyModule_AddObject(m, "PTO_CSV", (PyObject *) &PTO_CSV) < 0) {
         Py_DECREF(&PTO_CSV);
