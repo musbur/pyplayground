@@ -4,11 +4,16 @@
 #include "csv_read.h"
 
 enum {
-    PCSV_OK,           // no error
-    PCSV_ERR_MALLOC,   // malloc() fail
-    PCSV_ERR_HEADER,   // error in texts before data
-    PCSV_ERR_STRUCTURE // inconsistent line lengths
+    PCSV_OK,            // no error
+    PCSV_ERR_DATA,      // Unexpected data in file
+    PCSV_ERR_MALLOC,    // malloc() fail
+    PCSV_ERR_HEADER,    // error in texts before data
+    PCSV_ERR_STRUCTURE, // inconsistent line lengths
+    PCSV_ERR_NUMBER,    // Float conversion failure
+    PCSV_ERR_INTERNAL   // internal erroe (= bug)
 } ;
+
+extern int pcsv_errno;
 
 typedef void (free_func_t) (void *p);
 
@@ -28,24 +33,24 @@ struct double_array {
     double *value;
     double *pos;
     int length;
-    int alloc_increment;
     int allocated;
 } ;
 
 struct pto_context {
     /* Public interface. Read only. Valid only AFTER pcsv_feed()
      * is exhausted without errors. */
-    int errno;
     struct list *header_keys;    // For the general header (Wafer ID, ..)
     struct list *header_values;
     struct list *colnames;       // All colnames found in file
-    struct list *current_list;
+    char *column_mask;           // non-zero for each selected col
+    struct double_array *data;
+
+    /* private */
     char **colname_patterns; /* NULL-terminated pattern on which 
                                 colnames must END */
-    struct double_array *data;
+    struct list *current_list;
     int error;
     int status;
-    char *column_mask;
     int current_line;
     int current_col;
     struct csv_context *csv;

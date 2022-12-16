@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "csv_read.h"
+#include "pto_csv.h"
 
 #define NPY_NO_DEPRECATED_API  NPY_1_7_API_VERSION
 #include <numpy/ndarrayobject.h>
@@ -17,17 +17,9 @@
 
 typedef struct {
     PyObject_HEAD
-    int current_line;
-    int current_col;
-    struct ll *header_keys;
-    struct ll *header_values;
-    struct ll *colnames;
-    struct ll *ll_p;
-    int n_columns;
-    struct double_array *data;
-    char *column_mask;
-    struct csv_context *csv;
+    struct pto_context *context;
     PyObject *colname_patterns;
+    char **colpat;
 } pto_csv;
 
 static PyObject *create_ndarray(PyObject *self, PyObject *args) {
@@ -51,112 +43,39 @@ static PyObject *create_ndarray(PyObject *self, PyObject *args) {
     return ndarray;
 }
 
-int get_text(const char *piece, off_t pos, void *user_data) {
-    pto_csv *ctx = user_data;
-    (void) pos;
-    if (ctx->ll_p) ctx->ll_p = ll_append(ctx->ll_p, piece);
-    return 0;
-}
-
-int get_double(const char *piece, off_t pos, void *user_data) {
-    pto_csv *ctx = user_data;
-    double v;
-    char *e;
-    (void) pos;
-    if (ctx->current_col >= ctx->n_columns) {
-        return 0; // silently ignore excess value
-    }
-    if (ctx->column_mask[ctx->current_col]) {
-        if (ctx->current_col == 0) {
-            static struct tm tm;
-            char *p;
-            p = strptime(piece, "%Y-%m-%dT%H:%M:%S", &tm);
-            if (p) {
-                v = mktime(&tm);
-            } else {
-                fprintf(stderr, "Not a time: %s\n", piece);
-                v = -1;
-            }
-        } else {
-            e = (char *) piece;
-            v = strtod(piece, &e);
-            if (*e != 0) {
-                fprintf(stderr, "Not a float: %s\n", piece);
-                v = -1;
-            }
-        }
-        double_a_append(ctx->data, v);
-    }
-    ++ctx->current_col;
-    return 0;
-}
-
-int get_line(int line_no, int n_pieces, void *user_data) {
-    pto_csv *ctx = user_data;
-    int i;
-//    fprintf(stderr, "Line %d\n", (int) line_no);
-    switch (line_no) {
-        case 0:
-        case 1:
-        case 2:
-        case 3:
-            break;
-        case 4:
-            ctx->ll_p = ctx->header_keys;
-            break;
-        case 5:
-            ctx->ll_p = ctx->header_values;
-            break;
-        case 6:
-            ctx->ll_p = ctx->colnames;
-            break;
-        case 7:
-            ctx->n_columns = n_pieces;
-            ctx->column_mask = calloc(ctx->n_columns, 1);
-            ctx->data = double_a_new(300);
-            for (i = 0; i < ctx->n_columns; ++i) {
-                ctx->column_mask[i] = 1;
-            }
-            ctx->csv->func_piece = get_double;
-            fprintf(stderr, "Got %d columns\n", ctx->n_columns);
-            break;
-        default:
-            if (n_pieces != ctx->n_columns) {
-                fprintf(stderr, "Expected %d values in line %d, got %d\n",
-                        (int) ctx->n_columns,
-                        (int) line_no,
-                        (int) n_pieces);
-            }
-            break;
-    }
-    ctx->current_col = 0;
-    return 0;
-}
-
 static int pto_csv_init(pto_csv *self, PyObject *args) {
-    PyObject *colnames;
-    int i;
-    if (!PyArg_ParseTuple(args, "O", &colnames)) return -1;
-    Py_INCREF(colnames);
-    if (!(self->header_keys = ll_new())) return -1;
-    if (!(self->header_values = ll_new())) return -1;
-    if (!(self->colnames = ll_new())) return -1;
-    self->ll_p = NULL;
-    self->current_line = 1;
-    self->current_col = -1;
-    self->n_columns = -1;
-    self->column_mask = NULL;
-    self->colname_patterns = colnames;
-    self->csv = csv_new(',', get_text, get_line, self);
+    int npat, i;
+
+    if (!PyArg_ParseTuple(args, "O", &self->colname_patterns)) return -1;
+
+    npat = PyTuple_Size(self->colname_patterns);
+    if (!(self->colpat = malloc((npat + 1) * sizeof *self->colpat))) {
+        goto MALLOC_ERROR;
+    }
+    for (i = 0; i < npat; ++i) {
+        PyObject *str;
+        str = PyTuple_GetItem(self->colname_patterns, i);
+        self->colpat[i] = PyUnicode_DATA(str);
+    }
+    self->colpat[npat] = NULL;
+
+    self->context = pcsv_new();
+    self->context->colname_patterns = self->colpat;
+
+    goto CONTINUE;
+MALLOC_ERROR:
+    pcsv_free(self->context);
+    return -1;
+CONTINUE:
     return 0;
 }
 
 static PyObject *feed(pto_csv *self, PyObject *args) {
-    Py_sint buflen;
+    int buflen;
     char *buffer;
     int r;
     if (!PyArg_ParseTuple(args, "y#", &buffer, &buflen)) return NULL;
-    r = csv_feed(self->csv, buffer, buflen);
+    r = pcsv_feed(self->context, buffer, buflen);
     if (r != 0) {
         return PyErr_Format(PyExc_RuntimeError, "csv_feed() = %d", r);
     }
@@ -168,20 +87,56 @@ static PyObject *header(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 static PyObject *columns(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
-    Py_RETURN_NONE;
+    PyObject *clist;
+    struct ll *lp;
+
+    if (!(clist = PyList_New(self->context->colnames->length))) return NULL;
+
+    for (lp = self->context->colnames->root; lp; lp = lp->next) {
+        PyList_Append(clist, PyUnicode_FromString(lp->data));
+    }
+    Py_INCREF(clist);
+    return clist;
 }
 
 static PyObject *selected(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
-    Py_RETURN_NONE;
+    PyObject *clist;
+    int i;
+    struct ll *lp;
+
+    if (!(clist = PyList_New(0))) return NULL;
+
+    i = 0;
+    for (lp = self->context->colnames->root; lp; lp = lp->next) {
+        if (self->context->column_mask[i]) {
+            PyList_Append(clist, PyUnicode_FromString(lp->data));
+        }
+        ++i;
+    }
+    Py_INCREF(clist);
+    return clist;
+}
+
+static void dealloc(pto_csv *self) {
+    pcsv_free(self->context);
+    free(self->colpat);
+    Py_DECREF(self->colname_patterns);
+    Py_TYPE(self)->tp_free(self);
 }
 
 static PyObject *data(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
     npy_intp dims[2];
     PyObject *ndarray;
+    int i, n_columns;
 
-    dims[0] = self->n_columns;
-    dims[1] = self->data->length / self->n_columns;
-    ndarray = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, self->data);
+    for (n_columns = 0, i = 0; i < self->context->colnames->length; ++i) {
+        if (self->context->column_mask[i]) ++n_columns;
+    }
+
+    dims[0] = n_columns;
+    dims[1] = self->context->data->length / n_columns;
+    ndarray = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE,
+                                        self->context->data);
     Py_INCREF(ndarray);
     return ndarray;
 }
@@ -211,6 +166,7 @@ static PyTypeObject PTO_CSV = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) pto_csv_init,
+    .tp_dealloc = (destructor) dealloc,
     .tp_methods = pto_csv_methods,
 } ;
 

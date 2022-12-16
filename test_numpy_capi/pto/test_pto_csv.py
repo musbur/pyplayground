@@ -13,10 +13,7 @@ def _test_it():
             if not buf:
                 break
             pto.feed(buf)
-    print(pto.header())
     print(pto.columns())
-    print(pto.selected())
-    print(pto.data())
 
 if __name__ == '__main__':
     _test_it()

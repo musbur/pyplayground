@@ -6,6 +6,9 @@
 #include <time.h>
 #include "pto_csv.h"
 
+#define TIME_COLUMN "TIME"
+#define ALLOC_INCREMENT 1000
+
 #define STATUS_START 0
 #define STATUS_FEED 2
 #define STATUS_DATA 3
@@ -16,20 +19,27 @@
  *
  */
 
+int pcsv_errno = PCSV_OK;
 
 typedef int (list_cb)(int i, void *p, void *user_data);
 
-struct list *list_new(void) {
+static struct list *list_new(void) {
     struct list *new;
     static struct list zero;
-    if (!(new = malloc(sizeof *new))) return NULL;
+    if (!(new = malloc(sizeof *new))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return NULL;
+    }
     *new = zero;
     return new;
 }
 
-int list_append(struct list *l, void *data, free_func_t *ff) {
+static int list_append(struct list *l, void *data, free_func_t *ff) {
     struct ll *el;
-    if (!(el = malloc(sizeof *el))) return -1;
+    if (!(el = malloc(sizeof *el))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return -1;
+    }
     el->data = data;
     el->free_func = ff;
     el->next = NULL;
@@ -45,7 +55,11 @@ int list_append(struct list *l, void *data, free_func_t *ff) {
 
 int list_append_str(struct list *l, const char *str) {
     char *s;
-    if (!(s = malloc(strlen(str) + 1))) return -1;
+    if (!(s = malloc(strlen(str) + 1))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return -1;
+    }
+
     return list_append(l, strcpy(s, str), free);
 }
 
@@ -54,10 +68,14 @@ void **list_to_array(struct list *l) {
     int i;
     struct ll *p;
 
-    if (!(arr = malloc((l->length + 1) * sizeof *arr))) return NULL;
+    if (!(arr = malloc((l->length + 1) * sizeof *arr))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return NULL;
+    }
     for (i = 0, p = l->root; i < l->length; ++i) {
         if (!p) {
             free(arr);
+            pcsv_errno = PCSV_ERR_INTERNAL;
             return NULL;
         }
         arr[i] = p->data;
@@ -75,6 +93,7 @@ void list_free(struct list *l) {
         free(lp);
         lp = next;
     }
+    free(l);
 }
 
 void list_print(FILE *fp, struct list *l) {
@@ -88,21 +107,26 @@ void list_print(FILE *fp, struct list *l) {
     }
 }
 
-struct double_array *double_a_new(int alloc_increment) {
+struct double_array *double_a_new() {
     struct double_array *arr;
     static struct double_array zero;
-    if (!(arr = malloc(sizeof *arr))) return NULL;
+    if (!(arr = malloc(sizeof *arr))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return NULL;
+    }
     *arr = zero;
-    arr->alloc_increment = alloc_increment;
     return arr;
 }
 
 int double_a_append(struct double_array *arr, double v) {
     if (arr->length == arr->allocated) {
         double *t;
-        arr->allocated += arr->alloc_increment;
+        arr->allocated += ALLOC_INCREMENT;
         t = realloc(arr->value, arr->allocated * sizeof *t);
-        if (!t) return -1;
+        if (!t) {
+            pcsv_errno = PCSV_ERR_MALLOC;
+            return -1;
+        }
         arr->value = t;
         arr->pos = arr->value + arr->length;
     }
@@ -146,15 +170,15 @@ static int get_double(const char *piece, long pos, void *user_data) {
             if (p) {
                 v = mktime(&tm);
             } else {
-                fprintf(stderr, "Not a time: %s\n", piece);
-                v = -1;
+                pcsv_errno = PCSV_ERR_DATA;
+                return -1;
             }
         } else {
             e = (char *) piece;
             v = strtod(piece, &e);
             if (*e != 0) {
-                fprintf(stderr, "Not a float: %s\n", piece);
-                v = -1;
+                pcsv_errno = PCSV_ERR_NUMBER;
+                return -1;
             }
         }
         double_a_append(ctx->data, v);
@@ -176,7 +200,10 @@ static char *make_colmask(struct list *colnames, char **wanted) {
     int i;
     struct ll *lp;
 
-    if (!(mask = malloc(colnames->length))) return NULL;
+    if (!(mask = malloc(colnames->length))) {
+        pcsv_errno = PCSV_ERR_MALLOC;
+        return NULL;
+    }
     for (lp = colnames->root, i = 0; i < colnames->length; ++i) {
         mask[i] = 0;
         if (wanted) {
@@ -215,16 +242,20 @@ static int get_line(int line_no, int n_pieces, void *user_data) {
         case 7:
             ctx->column_mask = make_colmask(ctx->colnames,
                                             ctx->colname_patterns);
-            ctx->data = double_a_new(300);
+            ctx->data = double_a_new();
             ctx->csv->func_piece = get_double;
             break;
+        case 8:
+            if (strcmp(ctx->colnames->root->data, TIME_COLUMN)) {
+                pcsv_errno = PCSV_ERR_DATA;
+                return -1;
+            }
+            // no break
         default:
             ctx->status = STATUS_DATA;
             if (n_pieces != ctx->colnames->length) {
-                fprintf(stderr, "Expected %d values in line %d, got %d\n",
-                        (int) ctx->colnames->length,
-                        (int) line_no,
-                        (int) n_pieces);
+                pcsv_errno = PCSV_ERR_STRUCTURE;
+                return -1;
             }
             break;
     }
@@ -249,6 +280,7 @@ struct pto_context *pcsv_new(void) {
     if (!(ctx->colnames = list_new()))         goto CLEANUP;
     goto CONTINUE;
 CLEANUP:
+    pcsv_errno = PCSV_ERR_MALLOC;
     pcsv_free(ctx);
     return NULL;
 CONTINUE:

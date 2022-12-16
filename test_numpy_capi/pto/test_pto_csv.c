@@ -24,9 +24,13 @@ int main(void) {
     csv = fopen("Process Details - WLN8R0  b.11 - SPM6 - 16-22-41.csv", "rt");
     while ((bytes = fread(buffer, 1, sizeof buffer, csv)) > 0) {
         r = pcsv_feed(context, buffer, bytes);
-        if (r) break;
+        if (r) {
+            fprintf(stderr, "Error: %d\n", pcsv_errno);
+            break;
+        }
     }
     fclose(csv);
+    printf("%d data points\n", context->data->length);
 
     pcsv_free(context);
     return 0;
