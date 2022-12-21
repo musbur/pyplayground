@@ -22,44 +22,33 @@ typedef struct {
     char **colpat;
 } pto_csv;
 
-static PyObject *create_ndarray(PyObject *self, PyObject *args) {
-    /* This needs to go into a type class in order to be able to free the
-     * array after use */
-    int size;
-    int i;
-    npy_intp dims[1];
-    double *array;
-    PyObject *ndarray;
-
-    if (!PyArg_ParseTuple(args, "i", &size)) return NULL;
-
-    array = malloc(size * sizeof *array);
-    for (i = 0; i < size; ++i) {
-        array[i] = (double) i / (double) size;
-    }
-    dims[0] = size;
-    ndarray = PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, array);
-    Py_INCREF(ndarray);
-    return ndarray;
-}
-
 static int pto_csv_init(pto_csv *self, PyObject *args) {
     int npat, i;
+    PyObject *arg;
+
+    self->context = NULL;
+    self->colname_patterns = NULL;
+    self->colpat = NULL;
+    self->context = pcsv_new();
+    if (!self->context) goto MALLOC_ERROR;
 
     if (!PyArg_ParseTuple(args, "O", &self->colname_patterns)) return -1;
-
-    npat = PyTuple_Size(self->colname_patterns);
-    if (!(self->colpat = malloc((npat + 1) * sizeof *self->colpat))) {
-        goto MALLOC_ERROR;
+    if (PyTuple_Check(self->colname_patterns)) {
+        npat = PyTuple_Size(self->colname_patterns);
+        if (!(self->colpat = malloc((npat + 1) * sizeof *self->colpat))) {
+            goto MALLOC_ERROR;
+        }
+        for (i = 0; i < npat; ++i) {
+            PyObject *str;
+            str = PyTuple_GetItem(self->colname_patterns, i);
+            self->colpat[i] = PyUnicode_DATA(str);
+        }
+        self->colpat[npat] = NULL;
+    } else if (self->colname_patterns != Py_None) {
+        PyErr_Format(PyExc_ValueError, "Expected tuple or None");
+        return -1;
     }
-    for (i = 0; i < npat; ++i) {
-        PyObject *str;
-        str = PyTuple_GetItem(self->colname_patterns, i);
-        self->colpat[i] = PyUnicode_DATA(str);
-    }
-    self->colpat[npat] = NULL;
 
-    self->context = pcsv_new();
     self->context->colname_patterns = self->colpat;
 
     goto CONTINUE;
@@ -81,7 +70,8 @@ static PyObject *feed(pto_csv *self, PyObject *args) {
     x[buflen] = 0;
     r = pcsv_feed(self->context, buffer, buflen);
     if (r != 0) {
-        return PyErr_Format(PyExc_RuntimeError, "csv_feed() = %d", r);
+        return PyErr_Format(PyExc_RuntimeError, "csv_feed(): %s",
+               pcsv_errmsg[pcsv_errno]);
     }
     Py_RETURN_NONE;
 }
@@ -123,7 +113,9 @@ static PyObject *selected(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
 static void dealloc(pto_csv *self) {
     pcsv_free(self->context);
     free(self->colpat);
-    Py_DECREF(self->colname_patterns);
+    if (self->colname_patterns) {
+        Py_DECREF(self->colname_patterns);
+    }
     Py_TYPE(self)->tp_free(self);
 }
 
@@ -148,11 +140,11 @@ static PyObject *data(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 static PyMethodDef pto_csv_methods[] = {
-    {"feed", (PyCFunction) feed, METH_VARARGS},
-    {"header", (PyCFunction) header, METH_NOARGS},
-    {"columns", (PyCFunction) columns, METH_NOARGS},
+    {"feed",     (PyCFunction) feed,     METH_VARARGS},
+    {"header",   (PyCFunction) header,   METH_NOARGS},
+    {"columns",  (PyCFunction) columns,  METH_NOARGS},
     {"selected", (PyCFunction) selected, METH_NOARGS},
-    {"data", (PyCFunction) data, METH_NOARGS},
+    {"data",     (PyCFunction) data,     METH_NOARGS},
     {NULL}
 };
 
@@ -186,7 +178,7 @@ PyMODINIT_FUNC PyInit_pto_csv(void) {
     }
 
     import_array();
-    
+
     Py_INCREF(&PTO_CSV);
     if (PyModule_AddObject(m, "PTO_CSV", (PyObject *) &PTO_CSV) < 0) {
         Py_DECREF(&PTO_CSV);

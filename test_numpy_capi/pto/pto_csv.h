@@ -10,9 +10,10 @@ enum {
     PCSV_ERR_HEADER,    // error in texts before data
     PCSV_ERR_STRUCTURE, // inconsistent line lengths
     PCSV_ERR_NUMBER,    // Float conversion failure
-    PCSV_ERR_INTERNAL   // internal erroe (= bug)
+    PCSV_ERR_INTERNAL   // internal error (= bug)
 } ;
 
+extern const char *pcsv_errmsg[];
 extern int pcsv_errno;
 
 typedef void (free_func_t) (void *p);
@@ -49,7 +50,6 @@ struct pto_context {
     char **colname_patterns; /* NULL-terminated pattern on which 
                                 colnames must END */
     struct list *current_list;
-    int error;
     int status;
     int current_line;
     int current_col;

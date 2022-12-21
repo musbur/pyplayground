@@ -1,15 +1,17 @@
 import os
-import pandas
 from .pto_csv import PTO_CSV
 
 dir, _ = os.path.split(__file__)
-testfile = os.path.join(dir,
-    'Process Details - WLN8R0  b.11 - SPM6 - 16-22-41.csv')
 
-def _test_it():
+CORRECT = 'Process Details_correct.csv'
+INCORRECT = 'Process Details_incorrect.csv'
+
+def test_pandas():
+    import pandas
     pto = PTO_CSV(("TIME", "ActualPower", "ActualVoltage",
                           "ESCControl SV_actualCapacity"))
-    with open(testfile, 'rb') as csv:
+    csv_file = os.path.join(dir, CORRECT)
+    with open(csv_file, 'rb') as csv:
         while True:
             buf = csv.read(100)
             if not buf:
@@ -21,5 +23,17 @@ def _test_it():
     df.TIME = df.TIME - df.TIME[0]
     print(df.loc[df.iloc[:,3] > 0])
 
+
+def test_full():
+    pto = PTO_CSV(None)
+    csv_file = os.path.join(dir, INCORRECT)
+    with open(csv_file, 'rb') as csv:
+        while True:
+            buf = csv.read(100)
+            if not buf:
+                break
+            pto.feed(buf)
+    print(pto.selected())
+
 if __name__ == '__main__':
-    _test_it()
+    test_full()

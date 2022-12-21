@@ -19,6 +19,16 @@
  *
  */
 
+const char *pcsv_errmsg[] = {
+    "No error",
+    "Unexpected data in file",
+    "malloc() fail",
+    "Error in header",
+    "Inconsistent line lengths",
+    "Float conversion failure",
+    "Internal error",
+} ;
+
 int pcsv_errno = PCSV_OK;
 
 typedef int (list_cb)(int i, void *p, void *user_data);
@@ -100,8 +110,7 @@ void list_print(FILE *fp, struct list *l) {
     int i;
     struct ll *p;
     if (!l) return;
-    for (p = l->root, i = 0; i < l->length; ++i) {
-        if (!p) break;
+    for (p = l->root, i = 0; p && i < l->length; ++i) {
         fprintf(fp, "%2d: %s\n", i, (char *) p->data);
         p = p->next;
     }
@@ -229,6 +238,7 @@ static int get_line(int line_no, int n_pieces, void *user_data) {
         case 1:
         case 2:
         case 3:
+            fprintf(stderr, "READ LINE NO %d\n", line_no);
             break;
         case 4:
             ctx->current_list = ctx->header_keys;
@@ -298,6 +308,7 @@ int pcsv_feed(struct pto_context *ctx, const char *buffer, int buflen) {
 }
 
 void pcsv_free(struct pto_context *ctx) {
+    if (!ctx) return;
     list_free(ctx->header_keys);
     list_free(ctx->header_values);
     list_free(ctx->colnames);
