@@ -25,7 +25,7 @@ def test_pandas():
 
 
 def test_full():
-    pto = PTO_CSV(None)
+    pto = PTO_CSV(['ME'])
     csv_file = os.path.join(dir, INCORRECT)
     with open(csv_file, 'rb') as csv:
         while True:

@@ -222,8 +222,6 @@ static char *make_colmask(struct list *colnames, char **wanted) {
                     break;
                 }
             }
-        } else {
-            mask[i] = 1;
         }
         lp = lp->next;
         if (!lp) break;
@@ -238,7 +236,6 @@ static int get_line(int line_no, int n_pieces, void *user_data) {
         case 1:
         case 2:
         case 3:
-            fprintf(stderr, "READ LINE NO %d\n", line_no);
             break;
         case 4:
             ctx->current_list = ctx->header_keys;

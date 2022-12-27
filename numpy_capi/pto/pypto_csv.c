@@ -33,14 +33,14 @@ static int pto_csv_init(pto_csv *self, PyObject *args) {
     if (!self->context) goto MALLOC_ERROR;
 
     if (!PyArg_ParseTuple(args, "O", &self->colname_patterns)) return -1;
-    if (PyTuple_Check(self->colname_patterns)) {
-        npat = PyTuple_Size(self->colname_patterns);
+    if (PySequence_Check(self->colname_patterns)) {
+        npat = PySequence_Size(self->colname_patterns);
         if (!(self->colpat = malloc((npat + 1) * sizeof *self->colpat))) {
             goto MALLOC_ERROR;
         }
         for (i = 0; i < npat; ++i) {
             PyObject *str;
-            str = PyTuple_GetItem(self->colname_patterns, i);
+            str = PySequence_GetItem(self->colname_patterns, i);
             self->colpat[i] = PyUnicode_DATA(str);
         }
         self->colpat[npat] = NULL;
@@ -120,7 +120,6 @@ static void dealloc(pto_csv *self) {
 }
 
 static PyObject *data(pto_csv *self, PyObject *Py_UNUSED(ignored)) {
-//    npy_intp dims[2];
     npy_intp dims[2];
     PyObject *ndarray;
     int i, n_columns;
