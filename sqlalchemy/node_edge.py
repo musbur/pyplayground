@@ -7,68 +7,67 @@ from sqlalchemy.orm import (declarative_base, relationship,
 
 Base = declarative_base()
 
-class Node(Base):
-    __tablename__ = 'node'
+NODE_TYPES = ("top", "middle", "bottom")
+N_NODES = 3
+N_EDGES = 10
+
+class Thing(Base):
+    __tablename__ = "thing"
     id = Column(Integer, primary_key=True)
     type = Column(String(10))
 
-    def __str__(self):
-        return f"{self.id} {self.type}"
+    @property
+    def things_up(self):
+        for e in sorted(self.links_up, key=lambda x: x.position):
+            yield e.thing_up
 
     @property
-    def nodes_up(self):
-        for e in self.edges_up:
-            yield e.node_up
+    def things_down(self):
+        for e in sorted(self.links_down, key=lambda x: x.position):
+            yield e.thing_down
 
-    @property
-    def nodes_down(self):
-        for e in self.edges_down:
-            yield e.node_down
-
-class Edge(Base):
-    __tablename__ = 'edge'
-    id_up = Column(ForeignKey('node.id'), primary_key=True)
-    id_down = Column(ForeignKey('node.id'), primary_key=True)
+class Link(Base):
+    __tablename__ = "link"
+    id_up = Column(ForeignKey("thing.id"), primary_key=True)
+    id_down = Column(ForeignKey("thing.id"), primary_key=True)
     position = Column(Integer, primary_key=True)
 
-    node_up = relationship(Node, foreign_keys=[id_up],
-        backref='edges_down', order_by="Edge.position")
-    node_down = relationship(Node, foreign_keys=[id_down],
-        backref='edges_up', order_by="Edge.position")
-
+    thing_up = relationship(Thing, foreign_keys=[id_up],
+        backref="links_down", order_by="Link.position")
+    thing_down = relationship(Thing, foreign_keys=[id_down],
+        backref="links_up", order_by="Link.position")
 
 random.seed(0)
 
-engine = create_engine('sqlite:///:memory:')
+engine = create_engine("sqlite:///:memory:", echo=False)
 
 Base.metadata.create_all(engine)
 
 db = sessionmaker(engine)()
 
-nodes = dict()
-for t in ('top', 'middle', 'down'):
-    for i in range(10):
-        node = Node(type=t)
-        db.add(node)
+things = dict()
+for t in NODE_TYPES:
+    for i in range(N_NODES):
+        thing = Thing(type=t)
+        db.add(thing)
 db.commit()
 
-for upper, lower in (('top', 'middle'), ('middle', 'down')):
-    nodes_upper = db.query(Node).filter_by(type=upper).all()
-    nodes_lower = db.query(Node).filter_by(type=lower).all()
+for i in range(len(NODE_TYPES)-1):
+    things_lower = db.query(Thing).filter_by(type=NODE_TYPES[i+1]).all()
+    things_upper = db.query(Thing).filter_by(type=NODE_TYPES[i]).all()
 
-    for i in range(10):
-        edge = Edge(node_up=random.choice(nodes_upper),
-                    node_down=random.choice(nodes_lower),
+    for i in reversed(range(N_EDGES)):
+        link = Link(thing_up=random.choice(things_upper),
+                    thing_down=random.choice(things_lower),
                     position=i)
 
 db.commit()
 
-rs = db.query(Node)
-for node in rs:
-    print('NODE ', node)
-    for n in node.nodes_down:
-        print('  v ', n)
-    for n in node.nodes_up:
-        print('  ^ ', n)
-
+rs = db.query(Thing)
+for thing in rs:
+    print("NODE ", thing.id, thing.type)
+    for l in thing.links_down:
+        print(f"  v {l.position} {l.thing_down.id}")
+    for l in thing.links_up:
+        print(f"  ^ {l.position}, {l.thing_up.id}")
 
