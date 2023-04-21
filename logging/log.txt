@@ -1,0 +1,6 @@
+File: Normal error: 5
+File: Exception!
+Traceback (most recent call last):
+  File "exception.py", line 8, in log_something
+    raise RuntimeError("Exception!")
+RuntimeError: Exception!

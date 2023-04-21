@@ -1,0 +1,55 @@
+I'm trying to set up two logging handlers, one of which has a custom Formatter for exceptions. Here's what I've tried:
+
+    import logging
+
+    def log_something():
+        log.error("Normal error")
+        try:
+            raise RuntimeError("Exception!")
+        except Exception as e:
+            log.exception(e)
+
+    class MyFormatter(logging.Formatter):
+
+        def formatException(self, exc_info):
+            return "Too bad"
+
+    s_handler = logging.StreamHandler()
+    s_handler.setFormatter(MyFormatter(fmt="My formatter: %(message)s"))
+    f_handler = logging.FileHandler("log.txt")
+
+    log = logging.getLogger()
+    log.addHandler(f_handler) # first
+    log.addHandler(s_handler) # second -- why does the order matter?
+
+    log_something()
+
+
+The output is:
+
+    My formatter: Normal error
+    My formatter: Exception!
+    Traceback (most recent call last):
+      File "exception.py", line 6, in log_something
+        raise RuntimeError("Exception!")
+    RuntimeError: Exception!
+
+So it seems that the formatException method of my custom formatter doesn't get called. However, when I reverse the two addHandler calls like so:
+
+    log.addHandler(handler)
+    log.addHandler(f_handler)
+
+the output is as expected:
+
+    My formatter: Normal error
+    My formatter: Exception!
+    Too bad
+
+Also in either case the logging outputs to the file and the stream are exactly the same. My questions:
+
+1) How come that the formatter of the handler that is added first is used for the subsequent handler as well? I thought that the formatter "belongs" to the handler, and that when I add different handlers to different formatters the wouldn't interfere.
+
+2) Why does the format() method get called in either case, but the formatException() method only if the handler with the custom formatter is added first?
+
+
+It seems that the formatter of the second handler is ignored and that always the formatter of the first handler is used. Why is that? I thought the formatter "belonged" to the handler, and that different handlers could use different formatters?
