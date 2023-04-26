@@ -1,5 +1,6 @@
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 
 Base = declarative_base()
 
@@ -9,34 +10,56 @@ class RecipeRegistry():
         self.db = db
         self.data = dict()
 
-    def __get__(self, key):
-        value = self.data.get(key)
-        if value:
-            return value
-        
+    def get(self, name):
+        recipe = self.data.get(name)
+        if not recipe:
+            recipe = (self.db.query(Recipe)
+                      .filter_by(name=name)
+                      .one_or_none())
+            if not recipe:
+                recipe = Recipe(name=name)
+            self.data[name] = recipe
+        return recipe
 
 class Recipe(Base):
-    __tablename = "recipe"
-    id          = Column(Integer, primary_key=True)
-    name        = Column(String(200), unique=True)
+    __tablename__ = "recipe"
+    id            = Column(Integer, primary_key=True)
+    name          = Column(String(200), unique=True)
 
 class Sequence(Base):
-    __tablename = "sequence"
-    id          = Column(Integer, primary_key=True)
-    recipe_id   = Column(ForeignKey("recipe.id"))
-    rcp = relationship(Recipe)
+    __tablename__ = "sequence"
+    id            = Column(Integer, primary_key=True)
+    recipe_id     = Column(ForeignKey("recipe.id"))
+    _recipe = relationship(Recipe)
 
-    @property
+    @hybrid_property
     def recipe(self):
-        return self.rcp.name if self.rcp else None
+        if not self._recipe:
+            raise RuntimeError("This shouldn't happen")
+        return self._recipe.name
 
     @recipe.setter
     def recipe(self, name):
-        id = registry.get(name, None)
-        if id:
-            self.recipe_id = id
-            return
+        self._recipe = _recipe_registry.get(name)
 
+    @recipe.expression
+    def recipe(cls):
+        return Recipe.name
 
+engine = create_engine("sqlite:///test.db")
+Base.metadata.create_all(engine)
 
-        
+db = sessionmaker(engine)()
+
+_recipe_registry = RecipeRegistry(db)
+
+for n in ('Meep', 'Maap', 'Moop', 'Meep'):
+    r = Sequence(recipe=n)
+    db.add(r)
+db.commit()
+
+rs = (db.query(Sequence)
+      .join(Recipe) # I want to get rid of this join
+      .filter(Sequence.recipe == "Meep"))
+for r in rs:
+    print(r)
