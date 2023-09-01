@@ -1,0 +1,104 @@
+# hau230608 Umgestellt von .ini auf .yaml
+#
+# Serviervorschlag:
+# from dham.config import Config
+# config = Config()
+# config.load()
+
+default:
+    smtp-relay  : smtprelay.de-hbg01.nexperia.com
+    wsgi-server : deham01in015.de-hbg01.nexperia.com
+    db:
+       host     : deham01in015.de-hbg01.nexperia.com
+       username : dham
+       password : bmag_nexperia2022
+    base-url    : http://deham01in015.de-hbg01.nexperia.com/dham/
+
+jobwatch:
+    exclude-tools: [] # Klarname: RSCL7, ....
+    scan-recipes: False
+    logfile: /var/log/jobwatch/jobwatch.log
+
+    criteria:
+        max-pause-ni: 1200  # 20 Minuten Standzeit unter Vakuum nach Ni
+        max-seq-starts: 2   # Nach 3 Restarts wird die Scheibe "rot"
+        sequence: '^[A-Z][A-Za-z]+\d{2,}' # Sequence-Name = Step-Name
+        seq-exclude: '^(Au|AuAs)300'      # Außer bei Au(As) mit AuAs1, AuAs2
+
+    check-auftrag:
+        max-age: 96 # Stunden seit letzter Bearbeitung, nach denen keine
+                    # Freigabe mehr erfolgt (Abgrenzung von vorheriger
+                    # Bearbeitungsstufe TODO hau230621
+
+fehlerdb:
+    aggregate-days: 150
+    poll-period: 5 # minutes
+
+    ausschuss:
+        email-plot-size: [600, 400]
+        plot-size: [700, 400]
+        major-event: 10
+        ts-ausschuss: True # Zeitpunkt AU-Buchung. False: Zeitpunkt Fehlermeldung
+
+    email-ing:
+        - leyla.ranjgari@nexperia.com
+        - igor.vojnic-schreiber@nexperia.com
+        - focko.meier@nexperia.com
+        - stephanie.krohn@nexperia.com
+        - imke.dr.hengel@nexperia.com
+        - ertan.ciplakoglu@nexperia.com
+        - torsten.wichers@nexperia.com
+        # EMail von Focko 230329:
+        - GA_Fab_BMAG_all@nexperia.com
+        - GA_Fab_EGIO_all@nexperia.com
+        - GA_Fab_Litec_all@nexperia.com
+        - GA_Fab_WIPO_all@nexperia.com
+        - GA_Fab_Technology_all@nexperia.com
+
+    email-set:
+        - GA_FAB_Production_A_SET1@nexperia.com
+        - GA_FAB_Production_A_SET2@nexperia.com
+        - GA_FAB_Production_A_SET3@nexperia.com
+        - GA_FAB_Production_B_SET1@nexperia.com
+        - GA_FAB_Production_B_SET2@nexperia.com
+        - GA_FAB_Production_B_SET3@nexperia.com
+        - GA_FAB_Production_C_SET1@nexperia.com
+        - GA_FAB_Production_C_SET2@nexperia.com
+        - GA_FAB_Production_C_SET3@nexperia.com
+        - GA_FAB_Production_D_SET1@nexperia.com
+        - GA_FAB_Production_D_SET2@nexperia.com
+        - GA_FAB_Production_D_SET3@nexperia.com
+        - GA_FAB_Production_E_SET1@nexperia.com
+        - GA_FAB_Production_E_SET2@nexperia.com
+        - GA_FAB_Production_E_SET3@nexperia.com
+        - yusuf.eker@nexperia.com
+
+    email-from: noreply-ausschuss@nexperia.com
+
+dham_wsgi:
+#    logfile: /var/log/dham/jobwatch
+#    loglevel: INFO
+#    logformat: "{asctime} ({levelname}:{pathname}:{lineno}) {message}"
+
+    repa:
+        email-to:
+            - daniel.haude@nexperia.com
+            - christian.castillo.delgadillo@nexperia.com
+            - younes.benassila@nexperia.com
+        email-from: daniel.haude@nexperia.com
+        email-delay: 300 # Sekunden nach Split, wann EMail kommt
+        max-lot-size: 50
+        expire-inwork: 100 # Tage, nach denen in_work-Einträge gelöscht
+                           # werden, wenn kein nb_auftrag kommt
+
+    jobwatch:
+        problem-recipes: [KMRH68, KMRHC8, KMRHB8, KMRH58, KMRM68]
+
+    flask: # Keys/Values gehen direkt nach Flask.config
+        SESSION_COOKIE_NAME: dh.session
+        SESSION_COOKIE_PATH: /
+        SECRET_KEY: 2a2687cb-d0cb-4c27-aa9b-26b1eb66193b
+
+
+
+
